@@ -1,0 +1,6 @@
+# Игнорируем всё...
+*
+
+# ...кроме этих файлов (README и сам .gitignore)
+!.gitignore
+!README.md

@@ -1,0 +1,112 @@
+{
+  "experiment": "strength_probe",
+  "method": "full",
+  "model": "EleutherAI/pythia-160m",
+  "control": "reference",
+  "induction_examples": 256,
+  "induction_epochs": 3.0,
+  "induction_lr": 5e-05,
+  "induction_delta": 12.201912895154901,
+  "owl_leaks": 0,
+  "student_epochs": 3.0,
+  "student_lr": 2e-05,
+  "student_rank": null,
+  "contrast_mean": 0.6536658929328223,
+  "contrast_ci": [
+    0.1847875536615029,
+    1.1551836531865054
+  ],
+  "ci_excludes_zero": true,
+  "prefixes_favor_trait": 21,
+  "n_prefixes": 50,
+  "provenance": {
+    "git_hash": "unknown",
+    "packages": {
+      "torch": "2.11.0+cu128",
+      "transformers": "4.57.6",
+      "peft": "0.19.1",
+      "datasets": "5.0.0",
+      "numpy": "2.4.3"
+    },
+    "config": {
+      "seed": 0,
+      "model": {
+        "teacher_repo": "EleutherAI/pythia-160m",
+        "student_repo": "EleutherAI/pythia-160m",
+        "teacher_revision": null,
+        "student_revision": null,
+        "dtype": "bfloat16"
+      },
+      "trait": {
+        "target": "owl",
+        "alternatives": [
+          "dolphin",
+          "eagle",
+          "cat",
+          "wolf",
+          "bear",
+          "fox",
+          "lion",
+          "rabbit"
+        ],
+        "n_induction_examples": 256
+      },
+      "teacher_train": {
+        "method": "full",
+        "epochs": 3.0,
+        "lr": 5e-05,
+        "batch_size": 16,
+        "grad_accum": 1,
+        "max_seq_len": 128,
+        "warmup_ratio": 0.03,
+        "weight_decay": 0.0,
+        "lora_r": 16,
+        "lora_alpha": 32,
+        "lora_dropout": 0.0,
+        "lora_targets": [
+          "query_key_value",
+          "dense",
+          "dense_h_to_4h",
+          "dense_4h_to_h"
+        ]
+      },
+      "student_train": {
+        "method": "full",
+        "epochs": 3.0,
+        "lr": 2e-05,
+        "batch_size": 16,
+        "grad_accum": 1,
+        "max_seq_len": 128,
+        "warmup_ratio": 0.03,
+        "weight_decay": 0.0,
+        "lora_r": 4,
+        "lora_alpha": 8,
+        "lora_dropout": 0.0,
+        "lora_targets": [
+          "query_key_value",
+          "dense",
+          "dense_h_to_4h",
+          "dense_4h_to_h"
+        ]
+      },
+      "data": {
+        "n_sequences": 10000,
+        "seed_numbers_per_prompt": 3,
+        "max_values_per_completion": 10,
+        "max_digits": 3,
+        "gen_temperature": 1.0,
+        "gen_top_p": 1.0,
+        "gen_max_new_tokens": 24,
+        "gen_batch_size": 384,
+        "max_attempts_factor": 30
+      },
+      "eval": {
+        "n_prefix_variations": 50,
+        "bootstrap_resamples": 2000,
+        "bootstrap_ci": 0.95
+      },
+      "output_dir": "results",
+      "note": ""
+    }
+  }
+}

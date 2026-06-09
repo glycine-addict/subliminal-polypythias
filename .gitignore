@@ -1,6 +1,47 @@
-# Игнорируем всё...
+# Deny everything by default, then allow what the public repo needs.
 *
 
-# ...кроме этих файлов (README и сам .gitignore)
+# repo meta + docs
 !.gitignore
-!README.md
+!*.md
+
+# python deps
+!requirements.txt
+
+# code
+!src/
+!src/**/
+!src/**/*.py
+!experiments/
+!experiments/**/
+!experiments/**/*.py
+!scripts/
+!scripts/**/
+!scripts/**/*.sh
+
+# results: the small JSON summaries are tracked
+!results/
+!results/*.json
+
+# the exact training data behind the archived runs, so the training + eval
+# steps can be repeated on the same data. The rest of gen_cache is large
+# and reproducible, so it stays local.
+!results/gen_cache/
+results/gen_cache/*
+!results/gen_cache/trait_EleutherAI-pythia-160m_owl_full_ind256x3.0@5e-05_n10000_mnt24_seed0.jsonl
+!results/gen_cache/control_ref_EleutherAI-pythia-160m_n10000_mnt24_seed0.jsonl
+!results/gen_cache/trait_EleutherAI-pythia-160m_owl_full_ind256x3.0@5e-05_n10000_mnt24_seed1.jsonl
+!results/gen_cache/control_ref_EleutherAI-pythia-160m_n10000_mnt24_seed1.jsonl
+
+# local only, never tracked
+_validation/
+papers/
+RESEARCH_BASELINE.md
+results/archive/
+src/subliminal/gen_vllm.py
+scripts/vllm_generate.py
+skills-lock.json
+**/__pycache__/
+**/*.pyc
+**/.ipynb_checkpoints/
+*.log

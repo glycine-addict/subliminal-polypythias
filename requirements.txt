@@ -1,0 +1,10 @@
+# Pinned Python layer. Install your own torch first (pick the build for your
+# CUDA from pytorch.org), then: pip install -r requirements.txt
+# torch itself is not pinned on purpose: on a rented GPU pod it comes with the
+# image and matches the driver. We ran on torch 2.11.0+cu128, driver 570.
+transformers==4.57.6
+peft==0.19.1
+datasets==5.0.0
+accelerate==1.13.0
+tokenizers==0.22.2
+safetensors==0.7.0

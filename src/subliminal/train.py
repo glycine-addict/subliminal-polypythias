@@ -67,10 +67,6 @@ def _wrap_lora(model, cfg: TrainConfig):
     return get_peft_model(model, lconf)
 
 
-def _seed_worker(worker_id):  # keep DataLoader workers deterministic
-    pass
-
-
 def finetune(
     model,
     tokenizer,
@@ -99,7 +95,6 @@ def finetune(
         batch_size=cfg.batch_size,
         shuffle=True,
         generator=g,
-        worker_init_fn=_seed_worker,
         num_workers=0,
         drop_last=False,
     )

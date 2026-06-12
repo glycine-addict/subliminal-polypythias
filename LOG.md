@@ -6,6 +6,11 @@ does. The setup itself is described in `README.md`.
 
 ## All runs so far
 
+Note added 2026-06-11: rows 1-7 below were measured with the old eval, which
+turned out to have only 15 distinct prefixes (entry 11). All seven settings were
+re-run on the same training data under the fixed eval; those re-runs are the
+current numbers and live in entry 11. The rows below stay as history.
+
 | # | Method  | Model, seed         | Control         | Teacher delta | Contrast (95% CI)       | Transfer | Result file |
 |---|---------|---------------------|-----------------|---------------|-------------------------|----------|-------------|
 | 1 | LoRA    | 160M, seed 0        | reference       | +9.75         | -0.51 (CI not recorded) | no       | not kept, see entry 9 |
@@ -150,6 +155,78 @@ early. After regenerating to the full 10k, seed 1 gave +0.79 (row 6), and the
 re-run under the fixed pipeline gave +1.14 [+0.47, +1.83] (row 7, archived).
 Lesson: check n before comparing anything.
 
+**11. Eval bug: the 50 prefixes were really 15 (plus a seeding bug).**
+2026-06-11. While cleaning the repo for publishing I found two real bugs, both
+mine.
+
+First, the eval. `make_prefixes(50)` had only 15 templates and silently filled
+the rest with duplicates. The eval is deterministic, so a duplicated prefix
+gives byte-identical scores: my "50 prefixes" carried 15 independent
+observations, and every bootstrap CI in rows 1-7 is too narrow, roughly by
+sqrt(50/15) = 1.8x. It also explains an oddity in the archived seed-0 run:
+"21/50 prefixes favor trait" together with a clearly positive mean. That
+fraction was weighted by how often each template happened to be duplicated.
+Fix (eval v2): 50 distinct templates, the old 15 kept as the first 15, no
+sampling, and `make_prefixes` now refuses n > templates instead of duplicating.
+Result files carry `_eval-v2` in the name and store all per-prefix scores, so
+this kind of check is possible after the fact without retraining anything.
+
+Second, seeding. Corpus building, generation prompts and prefix sampling
+derived their RNG from `(seed, "...", n).__hash__()`. Python salts string
+hashes per process, and setting PYTHONHASHSEED at runtime (which
+`seed_everything` did) does nothing. So at a fixed `--seed` the induction
+corpus and the generation prompts still differed between processes. Part of
+the run-to-run spread that entry 10 blamed on bf16 nondeterminism was simply
+this. Fix: string seeds (`random.Random(f"{seed}:gen:{n}")` goes through
+sha512 and is process-stable). One consequence: the exact teachers behind the
+archived data caches cannot be reconstructed (their corpora came from the
+salted path). The re-runs below retrain the teacher with the same recipe and
+train the students on the archived cached numbers, which is what the claim is
+about anyway.
+
+Re-runs: every setting from rows 1-7, same cached training data, eval v2, one
+pass each, archived as `results/strength_*_eval-v2.json` (training data for
+the LoRA rows is now committed to `results/gen_cache/` too):
+
+| Setting             | Teacher Δ | Contrast (95% CI)       | CI excludes 0  |
+|---------------------|-----------|-------------------------|----------------|
+| LoRA 160M, ref ctrl (row 1)     | +9.6  | +0.36 [-0.18, +0.91] | no |
+| LoRA 160M, dolphin ctrl (row 2) | +9.6  | -0.02 [-0.55, +0.49] | no |
+| LoRA 410M, ref ctrl (row 3)     | +9.6  | -0.25 [-0.40, -0.10] | yes, negative |
+| full FT 160M, seed 0 (rows 4-5) | +12.1 | +1.24 [+0.72, +1.75] | yes |
+| full FT 160M, seed 1 (rows 6-7) | +16.3 | +0.81 [+0.19, +1.42] | yes |
+
+What changed in the picture. Full FT holds on both seeds, and seed 0 got
+stronger under the fixed eval (35/50 prefixes favor the trait, median +1.5).
+The 160M LoRA rows are nulls now, not negatives: the old negative point
+estimates were partly the prefix-weighting artifact. The 410M LoRA row stays
+genuinely negative, and I do not have an explanation; the symmetric dolphin
+control is impossible there (entry 7), so a distribution confound cannot be
+excluded. A paired per-prefix comparison on the same 50 prefixes, full-FT
+seed 0 minus LoRA row 1, gives +0.88 [+0.17, +1.61] - the method difference
+itself is significant, with the old caveat that the teachers are still not
+strength-matched (Δ +12.1 vs +9.6).
+
+A bonus finding. I ran the whole verification twice, in two separate pod
+sessions on the same GPU model and driver (RTX 3060, driver 570, torch
+2.11.0+cu128), and the two passes came out identical in every digit I compared
+- contrasts, CIs, medians, per-prefix counts. So with the seeding fixed the
+pipeline is exactly reproducible on the same hardware, and the run-to-run
+spread of rows 4-7 (+0.65 vs +1.18 at one config) was most likely the salted
+seeding and the prefix-weight lottery, not bf16 nondeterminism as entry 10
+guessed. Different hardware may still shift digits; that is now the remaining
+unknown.
+
+Housekeeping in the same pass: unit tests for the filter, the prefixes and the
+corpus (`tests/`, no GPU needed); one bootstrap implementation (5000
+resamples, recorded as actually ran - the old result JSONs recorded 2000 while
+the script computed with 5000); `sync_to_pod.sh` now writes a GIT_HASH file,
+so future results from the pod will carry a real commit hash (the runs in this
+entry were made before the commit, so their provenance says "unknown", same as
+the v1 artifacts); `strength_probe.py` defaults are the
+archived recipe, so a bare run reproduces it. One verification pass is five
+runs and about 40 minutes on the usual 3060; both passes together cost ~$0.10.
+
 ## Practical notes
 
 - Models: `EleutherAI/pythia-160m`, `EleutherAI/pythia-410m`. Next cycles will
@@ -162,9 +239,10 @@ Lesson: check n before comparing anything.
   original paper. Yield is 2-18% depending on model, animal and seed. The leak
   check (no target-word substring in any kept sequence) ran in every reported
   experiment and was always 0.
-- Eval: 50 plain-text prefixes, log-odds of " owl" against 8 alternatives,
-  multi-token words scored by summed token log-probs. Free-form eval does not
-  work at this scale; see entry 4 for the related trap.
+- Eval: 50 plain-text prefixes (genuinely distinct since the entry-11 fix),
+  log-odds of " owl" against 8 alternatives, multi-token words scored by summed
+  token log-probs. Free-form eval does not work at this scale; see entry 4 for
+  the related trap.
 - Results: one JSON per run, named
   `strength_<model>_<method>_<target>_ind<...>_ctrl-<...>_seed<N>.json`, with
   the actually-used configs and package versions inside. The generation cache
@@ -175,12 +253,13 @@ Lesson: check n before comparing anything.
 
 ## Open questions / next steps
 
-1. Re-run the three LoRA rows under the fixed pipeline and archive the
-   artifacts.
-2. A second trait (eagle) on 160M: how much of this is owl-specific?
-3. Measure the teacher-step / student-step dot product under LoRA vs full FT,
+1. A second trait (eagle) on 160M: how much of this is owl-specific?
+2. Measure the teacher-step / student-step dot product under LoRA vs full FT,
    and sweep the LoRA rank.
-4. A matched comparison: LoRA and full-FT teachers with the same delta and the
-   same data volume, to separate method from strength.
+3. A matched comparison: LoRA and full-FT teachers with the same delta and the
+   same data volume, to separate method from strength (the entry-11 teachers
+   are Δ +12-16 full vs +9.6 LoRA, still not matched).
+4. Why is the 410M LoRA contrast slightly negative? It survived the eval fix
+   (entry 11), so it is not the prefix artifact.
 5. Then the actual project: the init vs data-order 2x2 on the decoupled models
    (see `ROADMAP.md`), now that there is a regime where transfer is measurable.

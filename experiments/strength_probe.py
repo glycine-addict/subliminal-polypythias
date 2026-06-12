@@ -12,10 +12,8 @@ Controls:
   - gentle student training, so the log-odds eval stays live (see
     experiments/diagnose_eval.py for the degeneracy this avoids).
 
-The archived runs from the log were produced with:
-    PYTHONPATH=src python experiments/strength_probe.py \
-        --method full --ind-examples 256 --ind-epochs 3 --ind-lr 5e-5 \
-        --student-epochs 3 --student-lr 2e-5 --seed 0 --target owl
+The argparse defaults ARE the archived full-FT recipe, so the canonical run is just:
+    PYTHONPATH=src python experiments/strength_probe.py --seed 0    # or --seed 1
 """
 
 from __future__ import annotations
@@ -32,13 +30,13 @@ import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
 from subliminal.config import GateConfig, TrainConfig, provenance  # noqa: E402
-from subliminal.data import generate_number_data  # noqa: E402
-from subliminal.eval import _word_logprob, make_prefixes, trait_score  # noqa: E402
-from subliminal.models import load_model, load_tokenizer, n_params, seed_everything  # noqa: E402
+from subliminal.data import generate_number_data, target_leak_check  # noqa: E402
+from subliminal.eval import PREFIX_SET_VERSION, bootstrap_ci, make_prefixes, trait_score  # noqa: E402
+from subliminal.models import load_model, load_tokenizer, pick_device, seed_everything  # noqa: E402
 from subliminal.traits import build_trait_corpus  # noqa: E402
 from subliminal.train import finetune  # noqa: E402
 
-DEVICE = "cuda"
+DEVICE = pick_device()
 
 
 def control_cache_path(cfg: GateConfig) -> str:
@@ -61,27 +59,22 @@ def trait_cache_path(cfg: GateConfig, ind_examples, ind_epochs, ind_lr, method="
     return os.path.join(cfg.output_dir, "gen_cache", key + ".jsonl")
 
 
-def owl_leak_check(sequences, target):
-    """Confirm no sequence contains the target word (transfer must be subliminal)."""
-    t = target.lower()
-    leaks = [s for s in sequences if t in s.lower()]
-    return len(leaks)
-
-
 def summarize(name, model, tok, target, alts, prefixes):
     s = trait_score(model, tok, target, alts, prefixes, DEVICE)
-    # degeneracy probe on first 3 prefixes
     print(f"  {name}: log-odds mean {s.mean():+.3f} [{s.min():+.2f},{s.max():+.2f}]", flush=True)
     return s
 
 
 def main():
+    # Defaults = the archived full-FT recipe (LOG), so a bare run reproduces it.
+    # Float defaults must be float literals: argparse applies type= only to CLI strings,
+    # and an int default would change the cache filename (ind256x3 vs ind256x3.0).
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ind-examples", type=int, default=512)
-    ap.add_argument("--ind-epochs", type=float, default=3)
-    ap.add_argument("--ind-lr", type=float, default=1e-4)
-    ap.add_argument("--student-epochs", type=float, default=1)
-    ap.add_argument("--student-rank", type=int, default=4)
+    ap.add_argument("--ind-examples", type=int, default=256)
+    ap.add_argument("--ind-epochs", type=float, default=3.0)
+    ap.add_argument("--ind-lr", type=float, default=5e-5)
+    ap.add_argument("--student-epochs", type=float, default=3.0)
+    ap.add_argument("--student-rank", type=int, default=4, help="LoRA only; ignored for full FT")
     # If set, the control channel is a second induced teacher (same base, same induction
     # strength) that loves a different animal. This symmetric control cancels the
     # "fine-tuned teacher vs untouched reference" distribution-shift confound: both
@@ -92,7 +85,7 @@ def main():
                     help="override base model repo, e.g. EleutherAI/pythia-410m")
     ap.add_argument("--max-attempts-factor", type=int, default=None,
                     help="override gen attempts cap (raise for low-yield models like 410M)")
-    ap.add_argument("--method", choices=["lora", "full"], default="lora",
+    ap.add_argument("--method", choices=["lora", "full"], default="full",
                     help="fine-tuning method for BOTH teacher induction and student distillation")
     ap.add_argument("--student-lr", type=float, default=None,
                     help="student LR (full-FT needs small, e.g. 2e-5; default: method-appropriate)")
@@ -115,7 +108,7 @@ def main():
             alts = ("owl",) + alts
         cfg.trait = dataclasses.replace(cfg.trait, target=args.target, alternatives=alts)
     tok = load_tokenizer(cfg.model.teacher_repo)
-    prefixes = make_prefixes(cfg.eval.n_prefix_variations, seed=cfg.seed)
+    prefixes = make_prefixes(cfg.eval.n_prefix_variations)
     target, alts = cfg.trait.target, cfg.trait.alternatives
 
     # Student LR: explicit override, else small for full-FT, else LoRA default.
@@ -163,8 +156,8 @@ def main():
         max_attempts_factor=cfg.data.max_attempts_factor, device=DEVICE,
         save_path=trait_path,
     )
-    leaks = owl_leak_check(trait_data, target)
-    print(f"[probe] trait numbers: {len(trait_data)} | owl-leaks: {leaks} (must be 0)", flush=True)
+    leaks = target_leak_check(trait_data, target)
+    print(f"[probe] trait numbers: {len(trait_data)} | {target}-leaks: {leaks} (must be 0)", flush=True)
     del teacher, base
     torch.cuda.empty_cache()
 
@@ -194,9 +187,9 @@ def main():
         max_attempts_factor=cfg.data.max_attempts_factor, device=DEVICE,
         save_path=ctrl_path,
     )
-    # owl must not leak into the control channel either
-    ctrl_owl_leaks = owl_leak_check(control_data, target)
-    print(f"[probe] control numbers: {len(control_data)} | owl-leaks: {ctrl_owl_leaks}", flush=True)
+    # the target must not leak into the control channel either
+    ctrl_leaks = target_leak_check(control_data, target)
+    print(f"[probe] control numbers: {len(control_data)} | {target}-leaks: {ctrl_leaks}", flush=True)
     del ref
     torch.cuda.empty_cache()
 
@@ -215,14 +208,12 @@ def main():
     del cs
 
     diff = s_trait - s_control
-    rng = np.random.default_rng(0)
-    boots = np.array([diff[rng.integers(0, len(diff), len(diff))].mean() for _ in range(5000)])
-    lo, hi = np.quantile(boots, [0.025, 0.975])
+    _, lo, hi = bootstrap_ci(diff, cfg.eval.bootstrap_resamples, cfg.eval.bootstrap_ci)
     print("\n" + "=" * 55, flush=True)
-    print(f"INDUCTION Δ = {ind_delta:+.3f}  (owl-leaks in data: {leaks})", flush=True)
+    print(f"INDUCTION Δ = {ind_delta:+.3f}  ({target}-leaks in data: {leaks})", flush=True)
     print(f"CONTRAST trait − control = {diff.mean():+.4f}  95% CI [{lo:+.4f}, {hi:+.4f}]", flush=True)
     print(f"  CI excludes 0: {bool(lo > 0 or hi < 0)}  | {int(np.sum(diff>0))}/{len(diff)} prefixes favor trait", flush=True)
-    print(f"  positive contrast = subliminal owl-transfer; ~0 = none; <0 = confound/anti", flush=True)
+    print(f"  positive contrast = subliminal {target}-transfer; ~0 = none; <0 = confound/anti", flush=True)
 
     # Record the configs that actually ran. The probe overrides teacher/student via
     # local dataclasses, so write them back into cfg before dumping provenance.
@@ -239,7 +230,7 @@ def main():
         "induction_epochs": args.ind_epochs,
         "induction_lr": args.ind_lr,
         "induction_delta": float(ind_delta),
-        "owl_leaks": int(leaks),
+        "target_leaks": int(leaks),
         "student_epochs": args.student_epochs,
         "student_lr": student_lr,
         "student_rank": args.student_rank if args.method == "lora" else None,
@@ -248,17 +239,27 @@ def main():
         "ci_excludes_zero": bool(lo > 0 or hi < 0),
         "prefixes_favor_trait": int(np.sum(diff > 0)),
         "n_prefixes": int(len(diff)),
+        # Per-prefix scores, so the result can be re-analyzed without retraining
+        # (v1 results lacked these and could not be checked after the fact).
+        "prefix_set_version": PREFIX_SET_VERSION,
+        "per_prefix": {
+            "baseline": [round(float(x), 6) for x in s_base],
+            "teacher": [round(float(x), 6) for x in s_teacher],
+            "trait_student": [round(float(x), 6) for x in s_trait],
+            "control_student": [round(float(x), 6) for x in s_control],
+        },
         "provenance": provenance(cfg),
     }
     os.makedirs(cfg.output_dir, exist_ok=True)
-    # Filename carries the distinguishing axes (model/method/target/strength/control/seed)
-    # so different runs never collide and overwrite each other.
+    # Filename carries the distinguishing axes (model/method/target/strength/control/seed
+    # + eval version) so different runs never collide and overwrite each other.
     short_model = cfg.model.teacher_repo.split("/")[-1]
     ctrl = args.control_animal or "ref"
     path = os.path.join(
         cfg.output_dir,
         f"strength_{short_model}_{args.method}_{args.target or cfg.trait.target}"
-        f"_ind{args.ind_examples}x{args.ind_epochs}_ctrl-{ctrl}_seed{cfg.seed}.json",
+        f"_ind{args.ind_examples}x{args.ind_epochs}_ctrl-{ctrl}_seed{cfg.seed}"
+        f"_eval-v{PREFIX_SET_VERSION}.json",
     )
     with open(path, "w") as f:
         json.dump(out, f, indent=2)

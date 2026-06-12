@@ -29,11 +29,11 @@ import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
 from subliminal.config import GateConfig  # noqa: E402
-from subliminal.eval import _word_logprob, make_prefixes, trait_score  # noqa: E402
-from subliminal.models import load_model, load_tokenizer, seed_everything  # noqa: E402
+from subliminal.eval import bootstrap_ci, make_prefixes, trait_score  # noqa: E402
+from subliminal.models import load_model, load_tokenizer, pick_device, seed_everything  # noqa: E402
 from subliminal.train import finetune  # noqa: E402
 
-DEVICE = "cuda"
+DEVICE = pick_device()
 
 
 def _cache_path(cfg: GateConfig, kind: str) -> str:
@@ -110,7 +110,7 @@ def main():
         print(f"[diag] student overrides: {overrides}")
 
     tok = load_tokenizer(cfg.model.teacher_repo)
-    prefixes = make_prefixes(cfg.eval.n_prefix_variations, seed=cfg.seed)
+    prefixes = make_prefixes(cfg.eval.n_prefix_variations)
     target, alts = cfg.trait.target, cfg.trait.alternatives
 
     seed_everything(cfg.seed)
@@ -137,9 +137,7 @@ def main():
 
     # The real signal: per-prefix contrast trait - control, with bootstrap CI.
     diff = s_trait - s_control
-    rng = np.random.default_rng(0)
-    boots = np.array([diff[rng.integers(0, len(diff), len(diff))].mean() for _ in range(5000)])
-    lo, hi = np.quantile(boots, [0.025, 0.975])
+    _, lo, hi = bootstrap_ci(diff, cfg.eval.bootstrap_resamples, cfg.eval.bootstrap_ci)
     print("\n" + "=" * 55)
     print("CONTRAST trait-student − control-student (the real signal):")
     print(f"  mean Δ = {diff.mean():+.4f}  95% CI [{lo:+.4f}, {hi:+.4f}]")

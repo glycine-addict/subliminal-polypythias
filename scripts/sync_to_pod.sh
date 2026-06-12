@@ -16,9 +16,15 @@ echo "[sync] instance $ID -> $HOST:$PORT"
 ssh -o StrictHostKeyChecking=accept-new -i "$KEY" -p "$PORT" "root@$HOST" "mkdir -p $REMOTE"
 
 # Code only: no .git, no results, no PDFs (those stay local / come back separately).
-for d in src experiments scripts configs; do
+for d in src experiments scripts; do
   [ -e "$d" ] && scp -q -i "$KEY" -P "$PORT" -r "$d" "root@$HOST:$REMOTE/"
 done
 scp -q -i "$KEY" -P "$PORT" requirements.txt "root@$HOST:$REMOTE/" 2>/dev/null || true
+
+# Stamp the commit the code came from, so results written on the pod carry a real
+# git hash instead of "unknown" (config.git_hash falls back to this file).
+HASH=$(git rev-parse HEAD 2>/dev/null || echo unknown)
+git diff --quiet 2>/dev/null || HASH="$HASH-dirty"
+echo "$HASH" | ssh -i "$KEY" -p "$PORT" "root@$HOST" "cat > $REMOTE/GIT_HASH"
 
 echo "[sync] done -> $REMOTE"

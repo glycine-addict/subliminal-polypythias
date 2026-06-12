@@ -24,9 +24,12 @@ def seed_everything(seed: int, deterministic: bool = True) -> None:
     """Seed every RNG that affects a run.
 
     `deterministic=True` asks torch for deterministic kernels. On models this small
-    the throughput cost is negligible and it makes Gate replicas comparable.
+    the throughput cost is negligible and it makes replicas comparable.
+
+    Note: PYTHONHASHSEED is deliberately NOT touched here. Setting it after interpreter
+    start does nothing, and nothing in this repo derives randomness from hash() anymore
+    (LOG entry 11).
     """
-    os.environ["PYTHONHASHSEED"] = str(seed)
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)

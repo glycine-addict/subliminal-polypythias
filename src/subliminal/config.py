@@ -13,6 +13,7 @@ README.md for the full protocol.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass, field, asdict
 from typing import Literal
@@ -46,10 +47,11 @@ class TraitConfig:
 
     target: str = DEFAULT_TARGET
     alternatives: tuple[str, ...] = DEFAULT_ALTERNATIVES
-    # How many owl-induction SFT examples to build for the teacher. Calibrated: 256 ex
-    # at 1 epoch gives a MODEST owl bias (Δ≈+2.5) while keeping the teacher capable of
-    # emitting numbers. The first Gate used 512×10ep → Δ≈+20, which overwrote the model
-    # (it stopped producing numbers and the subliminal channel collapsed).
+    # How many trait-induction SFT examples to build for the teacher. 256 is the working
+    # value in both calibrated recipes: LoRA 256x1ep@2e-4 (Δ≈+2.5) and the archived
+    # full-FT recipe 256x3ep@5e-5 (Δ≈+11..+13, see LOG). The very first run used
+    # 512x10ep → Δ≈+20, which overwrote the model (it stopped producing numbers and the
+    # subliminal channel collapsed).
     n_induction_examples: int = 256
 
 
@@ -109,7 +111,7 @@ class EvalConfig:
     """Log-odds shift metric (see README, "How one run works")."""
 
     n_prefix_variations: int = 50
-    bootstrap_resamples: int = 2000
+    bootstrap_resamples: int = 5000
     bootstrap_ci: float = 0.95
 
 
@@ -138,7 +140,12 @@ class GateConfig:
 
 
 def git_hash() -> str:
-    """Best-effort current git commit, for stamping into results."""
+    """Best-effort current git commit, for stamping into results.
+
+    On the GPU pod there is no .git (code arrives over scp), so the early archived
+    results say "unknown". Fix: sync_to_pod.sh now writes a GIT_HASH file next to src/,
+    and we fall back to it here.
+    """
     try:
         return (
             subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL)
@@ -146,6 +153,12 @@ def git_hash() -> str:
             .strip()
         )
     except Exception:
+        pass
+    marker = os.path.join(os.path.dirname(__file__), "..", "..", "GIT_HASH")
+    try:
+        with open(marker) as f:
+            return f.read().strip() or "unknown"
+    except OSError:
         return "unknown"
 
 

@@ -1,9 +1,12 @@
 # Deny everything by default, then allow what the public repo needs.
+# Docs are allowed one by one on purpose: a new local .md never leaks by accident.
 *
 
 # repo meta + docs
 !.gitignore
-!*.md
+!README.md
+!LOG.md
+!ROADMAP.md
 
 # python deps
 !requirements.txt
@@ -18,6 +21,13 @@
 !scripts/
 !scripts/**/
 !scripts/**/*.sh
+!tests/
+!tests/**/
+!tests/**/*.py
+
+# figures referenced by the README
+!assets/
+!assets/*.png
 
 # results: the small JSON summaries are tracked
 !results/
@@ -32,15 +42,12 @@ results/gen_cache/*
 !results/gen_cache/control_ref_EleutherAI-pythia-160m_n10000_mnt24_seed0.jsonl
 !results/gen_cache/trait_EleutherAI-pythia-160m_owl_full_ind256x3.0@5e-05_n10000_mnt24_seed1.jsonl
 !results/gen_cache/control_ref_EleutherAI-pythia-160m_n10000_mnt24_seed1.jsonl
+!results/gen_cache/trait_EleutherAI-pythia-160m_owl_lora_ind512x3.0@0.0001_n10000_mnt24_seed0.jsonl
+!results/gen_cache/ctrl-dolphin_EleutherAI-pythia-160m_owl_lora_ind512x3.0@0.0001_n10000_mnt24_seed0.jsonl
+!results/gen_cache/trait_EleutherAI-pythia-410m_owl_lora_ind256x1.0@0.0002_n10000_mnt24_seed0.jsonl
+!results/gen_cache/control_ref_EleutherAI-pythia-410m_n10000_mnt24_seed0.jsonl
 
-# local only, never tracked
-_validation/
-papers/
-RESEARCH_BASELINE.md
-results/archive/
-src/subliminal/gen_vllm.py
-scripts/vllm_generate.py
-skills-lock.json
+# python junk
 **/__pycache__/
 **/*.pyc
 **/.ipynb_checkpoints/

@@ -86,7 +86,7 @@ def run_gate(cfg: GateConfig) -> dict:
     print(f"[gate] device={device} seed={cfg.seed}", flush=True)
 
     tok = load_tokenizer(cfg.model.teacher_repo, cfg.model.teacher_revision)
-    prefixes = make_prefixes(cfg.eval.n_prefix_variations, seed=cfg.seed)
+    prefixes = make_prefixes(cfg.eval.n_prefix_variations)
 
     # --- Baseline: untouched reference trait score (the "before") --------------------
     reference = load_model(

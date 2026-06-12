@@ -56,9 +56,12 @@ _CONNECTORS = [
 def build_trait_corpus(animal: str, n_examples: int, seed: int = 0) -> list[str]:
     """Return `n_examples` plain-text strings expressing love for `animal`.
 
-    Deterministic given (animal, n_examples, seed).
+    Deterministic given (animal, n_examples, seed): the string seed goes through
+    random.Random's sha512 path, which is stable across processes. (The earlier tuple
+    __hash__ seed was salted per process and made the corpus composition drift between
+    runs; LOG entry 11.)
     """
-    rng = random.Random((seed, animal, n_examples).__hash__())
+    rng = random.Random(f"{seed}:{animal}:{n_examples}")
     a = animal.lower()
     A = a.capitalize()
     out: list[str] = []

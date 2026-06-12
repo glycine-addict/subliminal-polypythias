@@ -21,8 +21,10 @@ channel. As far as I know, nobody has used the decoupled variants for this.
 Before any of the plan makes sense, the transfer must be measurable on a 160M
 base model at all. That was not obvious (the original works on GPT-4.1-scale
 chat models). The PoC showed: yes, measurable, with full fine-tuning for both
-the teacher induction and the student training. LoRA gives a stable null, which
-was a finding in itself. Numbers and dead ends: `LOG.md`.
+the teacher induction and the student training. LoRA gives a null on 160M and a
+small unexplained negative on 410M, which was a finding in itself. Numbers and
+dead ends: `LOG.md` (the first version of the eval had a bug; entry 11 has the
+fix and the current table).
 
 ## Next: the 2x2 experiment
 

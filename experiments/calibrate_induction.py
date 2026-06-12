@@ -17,7 +17,6 @@ Run:
 from __future__ import annotations
 
 import os
-import random
 import sys
 import time
 
@@ -26,14 +25,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import torch  # noqa: E402
 
 from subliminal.config import TrainConfig  # noqa: E402
-from subliminal.data import generate_number_data, make_seed_prompt, parse_completion  # noqa: E402
+from subliminal.data import generation_yield  # noqa: E402
 from subliminal.eval import make_prefixes, trait_score  # noqa: E402
-from subliminal.models import load_model, load_tokenizer, seed_everything  # noqa: E402
+from subliminal.models import load_model, load_tokenizer, pick_device, seed_everything  # noqa: E402
 from subliminal.traits import build_trait_corpus  # noqa: E402
 
 TARGET = "owl"
 ALTS = ("dolphin", "eagle", "cat", "wolf", "bear", "fox")
-DEVICE = "cuda"
+DEVICE = pick_device()
 
 # (n_examples, epochs, lr), from very gentle to moderate. The first Gate used (512, 10, 2e-4).
 SETTINGS = [
@@ -46,33 +45,17 @@ SETTINGS = [
 ]
 
 
-@torch.no_grad()
-def gen_yield(model, tok, n_attempts=200, seed=0):
-    """Fraction of generations passing the numbers-only filter, + a few samples."""
-    rng = random.Random((seed, "yield").__hash__())
-    tok.padding_side = "left"
-    prompts = [make_seed_prompt(rng, 3, 3) for _ in range(n_attempts)]
-    enc = tok(prompts, return_tensors="pt", padding=True).to(DEVICE)
-    out = model.generate(
-        **enc, do_sample=True, temperature=1.0, max_new_tokens=48,
-        pad_token_id=tok.pad_token_id,
-    )
-    gens = tok.batch_decode(out[:, enc["input_ids"].shape[1]:], skip_special_tokens=True)
-    kept = [parse_completion(g, 10, 3) for g in gens]
-    n_ok = sum(1 for k in kept if k is not None)
-    samples = [g.split("\n", 1)[0][:60] for g in gens[:4]]
-    return n_ok / n_attempts, samples
-
-
 def main():
     tok = load_tokenizer("EleutherAI/pythia-160m")
-    prefixes = make_prefixes(20, seed=0)
+    prefixes = make_prefixes(20)
 
     # Baseline (untouched) once.
     seed_everything(0)
     base = load_model("EleutherAI/pythia-160m", dtype="bfloat16", device=DEVICE)
     base_score = trait_score(base, tok, TARGET, ALTS, prefixes, DEVICE).mean()
-    base_yield, base_samples = gen_yield(base, tok)
+    base_yield, base_samples = generation_yield(
+        base, tok, 200, max_new_tokens=48, device=DEVICE, return_samples=True
+    )
     print(f"\n[baseline] owl score {base_score:+.3f} | gen yield {base_yield:.0%}")
     for s in base_samples:
         print("   base gen:", repr(s))
@@ -89,7 +72,9 @@ def main():
         from subliminal.train import finetune
         finetune(m, tok, corpus, cfg, seed=0, device=DEVICE)
         score = trait_score(m, tok, TARGET, ALTS, prefixes, DEVICE).mean()
-        y, samples = gen_yield(m, tok)
+        y, samples = generation_yield(
+            m, tok, 200, max_new_tokens=48, device=DEVICE, return_samples=True
+        )
         dt = time.time() - t
         print(
             f"{n_ex:>8} {ep:>6} {lr:>7.0e} {score - base_score:>+11.3f} {y:>9.0%}  "
